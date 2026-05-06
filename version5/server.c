@@ -22,9 +22,6 @@
 #include <sys/select.h>
 #include <time.h>
 
-/* =========================================================
- *  CONSTANTES
- * ========================================================= */
 #define PORT            8080
 #define BUFFER_SIZE     1024
 #define MAX_CLIENTS     20
@@ -35,71 +32,43 @@
 #define MAX_FILE_DATA   65536
 #define LOG_FILE        "chat.log"
 
-/* =========================================================
- *  STRUCTURES DE DONNÉES
- * ========================================================= */
-
-/**
- * @brief Représente un client connecté au serveur.
- */
 typedef struct {
-    int  socket_fd;              /**< Descripteur de socket (-1 = slot libre) */
-    char pseudo[MAX_PSEUDO_LEN]; /**< Pseudo choisi avec /nick               */
-    char salon[MAX_SALON_LEN];   /**< Salon actif (vide si aucun)            */
-    char away_msg[BUFFER_SIZE];  /**< Message d'absence (vide = disponible)  */
-    int  nb_messages;            /**< Nombre de messages envoyés             */
+    int  socket_fd;
+    char pseudo[MAX_PSEUDO_LEN];
+    char salon[MAX_SALON_LEN];
+    char away_msg[BUFFER_SIZE];
+    int  nb_messages;
 } Client;
 
-/**
- * @brief Représente un salon de discussion.
- */
 typedef struct {
-    char nom[MAX_SALON_LEN];      /**< Nom du salon                          */
-    char password[MAX_PSEUDO_LEN];/**< Mot de passe (vide = pas de mdp)      */
-    int  actif;                   /**< 1 = salon existant, 0 = slot libre     */
+    char nom[MAX_SALON_LEN];
+    char password[MAX_PSEUDO_LEN];
+    int  actif;
 } Salon;
 
-/**
- * @brief Représente un transfert de fichier en attente d'approbation.
- */
 typedef struct {
-    int  sender_idx;              /**< Index du client expéditeur            */
-    int  receiver_idx;            /**< Index du client destinataire          */
-    char filename[MAX_FILENAME];  /**< Nom du fichier                        */
-    int  pending;                 /**< 1 = en attente de /accept ou /reject  */
+    int  sender_idx;
+    int  receiver_idx;
+    char filename[MAX_FILENAME];
+    int  pending;
 } FileTransfer;
 
-/* =========================================================
- *  VARIABLES GLOBALES
- * ========================================================= */
 Client      clients[MAX_CLIENTS];
 Salon       salons[MAX_SALONS];
 FileTransfer transfers[MAX_CLIENTS];
 
 int  nb_clients       = 0;
 int  nb_salons        = 0;
-int  total_connexions = 0;   /**< Nombre total de connexions depuis démarrage */
-int  total_messages   = 0;   /**< Nombre total de messages broadcast          */
-time_t server_start;         /**< Heure de démarrage du serveur               */
+int  total_connexions = 0;
+int  total_messages   = 0;
+time_t server_start;
 
-/* =========================================================
- *  UTILITAIRES
- * ========================================================= */
-
-/**
- * @brief Remplit le buffer @p heure avec l'heure actuelle (HH:MM:SS).
- * @param heure Buffer d'au moins 10 octets.
- */
 void get_heure(char *heure) {
     time_t now = time(NULL);
     struct tm *t = localtime(&now);
     strftime(heure, 10, "%H:%M:%S", t);
 }
 
-/**
- * @brief Enregistre un message dans le fichier de log horodaté.
- * @param message Chaîne à enregistrer (sans retour à la ligne).
- */
 void log_message(const char *message) {
     FILE *f = fopen(LOG_FILE, "a");
     if (!f) return;
@@ -109,11 +78,6 @@ void log_message(const char *message) {
     fclose(f);
 }
 
-/**
- * @brief Cherche un client par son pseudo.
- * @param pseudo Pseudo recherché.
- * @return Index du client dans le tableau, ou -1 si introuvable.
- */
 int find_client_by_pseudo(const char *pseudo) {
     for (int i = 0; i < MAX_CLIENTS; i++) {
         if (clients[i].socket_fd != -1 &&
@@ -123,11 +87,6 @@ int find_client_by_pseudo(const char *pseudo) {
     return -1;
 }
 
-/**
- * @brief Cherche un salon par son nom.
- * @param nom Nom du salon recherché.
- * @return Index du salon, ou -1 si introuvable.
- */
 int find_salon(const char *nom) {
     for (int i = 0; i < MAX_SALONS; i++) {
         if (salons[i].actif && strcmp(salons[i].nom, nom) == 0)
@@ -136,19 +95,10 @@ int find_salon(const char *nom) {
     return -1;
 }
 
-/**
- * @brief Envoie un message à un client identifié par son index.
- * @param idx    Index du client destinataire.
- * @param msg    Message à envoyer.
- */
 void send_to(int idx, const char *msg) {
     send(clients[idx].socket_fd, msg, strlen(msg), 0);
 }
 
-/**
- * @brief Libère le slot d'un client (ferme socket, remet à zéro).
- * @param idx Index du client à déconnecter.
- */
 void disconnect_client(int idx) {
     close(clients[idx].socket_fd);
     clients[idx].socket_fd = -1;
@@ -160,15 +110,11 @@ void disconnect_client(int idx) {
     nb_clients--;
 }
 
-/**
- * @brief Détruit un salon si plus aucun client ne l'occupe.
- * @param nom_salon Nom du salon à vérifier/détruire.
- */
 void detruire_salon_si_vide(const char *nom_salon) {
     for (int j = 0; j < MAX_CLIENTS; j++) {
         if (clients[j].socket_fd != -1 &&
             strcmp(clients[j].salon, nom_salon) == 0)
-            return; /* Encore des occupants, on ne détruit pas */
+            return;
     }
     int idx = find_salon(nom_salon);
     if (idx != -1) {
@@ -183,15 +129,6 @@ void detruire_salon_si_vide(const char *nom_salon) {
     }
 }
 
-/* =========================================================
- *  FONCTIONS DE DIFFUSION
- * ========================================================= */
-
-/**
- * @brief Envoie un message à tous les clients sauf l'expéditeur (broadcast).
- * @param sender_idx Index de l'expéditeur.
- * @param message    Contenu du message.
- */
 void broadcast(int sender_idx, const char *message) {
     char msg[BUFFER_SIZE], heure[10];
     get_heure(heure);
@@ -200,7 +137,6 @@ void broadcast(int sender_idx, const char *message) {
     for (int i = 0; i < MAX_CLIENTS; i++) {
         if (clients[i].socket_fd != -1 && i != sender_idx) {
             send_to(i, msg);
-            /* Réponse automatique si l'utilisateur est absent */
             if (strlen(clients[i].away_msg) > 0) {
                 char away[2 * BUFFER_SIZE];
                 snprintf(away, sizeof(away),
@@ -214,12 +150,6 @@ void broadcast(int sender_idx, const char *message) {
     clients[sender_idx].nb_messages++;
 }
 
-/**
- * @brief Envoie un message privé à un utilisateur cible (unicast).
- * @param sender_idx    Index de l'expéditeur.
- * @param target_pseudo Pseudo du destinataire.
- * @param message       Contenu du message privé.
- */
 void unicast(int sender_idx, const char *target_pseudo, const char *message) {
     int idx = find_client_by_pseudo(target_pseudo);
     char msg[BUFFER_SIZE], heure[10];
@@ -228,7 +158,6 @@ void unicast(int sender_idx, const char *target_pseudo, const char *message) {
         snprintf(msg, BUFFER_SIZE, "Utilisateur '%s' introuvable.\n", target_pseudo);
         send_to(sender_idx, msg);
     } else {
-        /* Message d'absence automatique */
         if (strlen(clients[idx].away_msg) > 0) {
             char away[2 * BUFFER_SIZE];
             snprintf(away, sizeof(away),
@@ -245,11 +174,6 @@ void unicast(int sender_idx, const char *target_pseudo, const char *message) {
     }
 }
 
-/**
- * @brief Envoie un message aux membres d'un même salon (multicast).
- * @param sender_idx Index de l'expéditeur.
- * @param message    Contenu du message.
- */
 void multicast(int sender_idx, const char *message) {
     char msg[BUFFER_SIZE], heure[10];
     get_heure(heure);
@@ -263,15 +187,6 @@ void multicast(int sender_idx, const char *message) {
     }
 }
 
-/* =========================================================
- *  GESTIONNAIRES DE COMMANDES
- * ========================================================= */
-
-/**
- * @brief Gère la commande /nick — changement de pseudo.
- * @param i      Index du client.
- * @param buffer Ligne de commande reçue.
- */
 void cmd_nick(int i, const char *buffer) {
     char new_pseudo[MAX_PSEUDO_LEN];
     strncpy(new_pseudo, buffer + 6, MAX_PSEUDO_LEN - 1);
@@ -281,7 +196,6 @@ void cmd_nick(int i, const char *buffer) {
         send_to(i, "Usage : /nick <pseudo>\n");
         return;
     }
-    /* Chercher si le pseudo est déjà pris par un AUTRE client (pas soi-même) */
     int existing = find_client_by_pseudo(new_pseudo);
     if (existing != -1 && existing != i) {
         snprintf(msg, BUFFER_SIZE, "Pseudo '%s' déjà utilisé.\n", new_pseudo);
@@ -292,7 +206,6 @@ void cmd_nick(int i, const char *buffer) {
         strncpy(clients[i].pseudo, new_pseudo, MAX_PSEUDO_LEN);
         snprintf(msg, BUFFER_SIZE, "Pseudo changé en '%s'\n", new_pseudo);
         send_to(i, msg);
-        /* Notifier les autres */
         char notif[BUFFER_SIZE];
         snprintf(notif, BUFFER_SIZE, "*** %s est maintenant connu sous '%s' ***\n",
                  old_pseudo, new_pseudo);
@@ -303,10 +216,6 @@ void cmd_nick(int i, const char *buffer) {
     }
 }
 
-/**
- * @brief Gère la commande /who — liste des utilisateurs connectés.
- * @param i Index du client demandeur.
- */
 void cmd_who(int i) {
     char msg[BUFFER_SIZE];
     strcpy(msg, "=== Utilisateurs connectés ===\n");
@@ -327,11 +236,6 @@ void cmd_who(int i) {
     send_to(i, msg);
 }
 
-/**
- * @brief Gère la commande /whois — infos sur un utilisateur spécifique.
- * @param i      Index du client demandeur.
- * @param buffer Ligne de commande reçue.
- */
 void cmd_whois(int i, const char *buffer) {
     char target[MAX_PSEUDO_LEN];
     strncpy(target, buffer + 7, MAX_PSEUDO_LEN - 1);
@@ -350,18 +254,10 @@ void cmd_whois(int i, const char *buffer) {
     send_to(i, msg);
 }
 
-/**
- * @brief Gère la commande /create — création d'un salon (avec mdp optionnel).
- *        Syntaxe : /create <nom> [motdepasse]
- * @param i      Index du client créateur.
- * @param buffer Ligne de commande reçue.
- */
 void cmd_create(int i, const char *buffer) {
     char nom_salon[MAX_SALON_LEN]  = {0};
     char password[MAX_PSEUDO_LEN]  = {0};
     char msg[BUFFER_SIZE];
-
-    /* Séparer nom et mot de passe optionnel */
     char args[BUFFER_SIZE];
     strncpy(args, buffer + 8, BUFFER_SIZE - 1);
     char *space = strchr(args, ' ');
@@ -371,7 +267,6 @@ void cmd_create(int i, const char *buffer) {
     } else {
         strncpy(nom_salon, args, MAX_SALON_LEN - 1);
     }
-
     if (strlen(nom_salon) == 0) {
         send_to(i, "Usage : /create <nom> [motdepasse]\n");
         return;
@@ -406,17 +301,10 @@ void cmd_create(int i, const char *buffer) {
     }
 }
 
-/**
- * @brief Gère la commande /join — rejoindre un salon.
- *        Syntaxe : /join <nom> [motdepasse]
- * @param i      Index du client.
- * @param buffer Ligne de commande reçue.
- */
 void cmd_join(int i, const char *buffer) {
     char nom_salon[MAX_SALON_LEN] = {0};
     char password[MAX_PSEUDO_LEN] = {0};
     char msg[BUFFER_SIZE];
-
     char args[BUFFER_SIZE];
     strncpy(args, buffer + 6, BUFFER_SIZE - 1);
     char *space = strchr(args, ' ');
@@ -426,20 +314,17 @@ void cmd_join(int i, const char *buffer) {
     } else {
         strncpy(nom_salon, args, MAX_SALON_LEN - 1);
     }
-
     int idx = find_salon(nom_salon);
     if (idx == -1) {
         snprintf(msg, BUFFER_SIZE, "Salon '%s' introuvable.\n", nom_salon);
         send_to(i, msg);
         return;
     }
-    /* Vérification du mot de passe */
     if (strlen(salons[idx].password) > 0 &&
         strcmp(salons[idx].password, password) != 0) {
         send_to(i, "Mot de passe incorrect.\n");
         return;
     }
-    /* Quitter l'ancien salon si nécessaire */
     if (strlen(clients[i].salon) > 0) {
         char ancien[MAX_SALON_LEN];
         strncpy(ancien, clients[i].salon, MAX_SALON_LEN);
@@ -449,7 +334,6 @@ void cmd_join(int i, const char *buffer) {
     strncpy(clients[i].salon, nom_salon, MAX_SALON_LEN - 1);
     snprintf(msg, BUFFER_SIZE, "Vous avez rejoint le salon '%s'.\n", nom_salon);
     send_to(i, msg);
-    /* Notifier les membres du salon */
     char notif[BUFFER_SIZE];
     snprintf(notif, BUFFER_SIZE, "*** %s a rejoint le salon ***\n",
              clients[i].pseudo);
@@ -460,10 +344,6 @@ void cmd_join(int i, const char *buffer) {
     }
 }
 
-/**
- * @brief Gère la commande /leave — quitter le salon actuel.
- * @param i Index du client.
- */
 void cmd_leave(int i) {
     char msg[BUFFER_SIZE];
     if (strlen(clients[i].salon) == 0) {
@@ -472,7 +352,6 @@ void cmd_leave(int i) {
     }
     char nom_salon[MAX_SALON_LEN];
     strncpy(nom_salon, clients[i].salon, MAX_SALON_LEN);
-    /* Notifier les membres restants */
     char notif[BUFFER_SIZE];
     snprintf(notif, BUFFER_SIZE, "*** %s a quitté le salon ***\n",
              clients[i].pseudo);
@@ -487,10 +366,6 @@ void cmd_leave(int i) {
     send_to(i, msg);
 }
 
-/**
- * @brief Gère la commande /list — liste tous les salons disponibles.
- * @param i Index du client demandeur.
- */
 void cmd_list(int i) {
     char msg[BUFFER_SIZE];
     if (nb_salons == 0) {
@@ -512,17 +387,10 @@ void cmd_list(int i) {
     send_to(i, msg);
 }
 
-/**
- * @brief Gère la commande /kick — expulser un utilisateur (modération).
- *        Syntaxe : /kick <pseudo>
- * @param i      Index du client qui expulse.
- * @param buffer Ligne de commande reçue.
- */
 void cmd_kick(int i, const char *buffer) {
     char target[MAX_PSEUDO_LEN];
     strncpy(target, buffer + 6, MAX_PSEUDO_LEN - 1);
     char msg[BUFFER_SIZE];
-
     if (strlen(target) == 0) {
         send_to(i, "Usage : /kick <pseudo>\n");
         return;
@@ -538,7 +406,6 @@ void cmd_kick(int i, const char *buffer) {
         return;
     }
     send_to(idx, "Vous avez été expulsé du serveur par un modérateur.\n");
-    /* Notifier tous les autres */
     char notif[BUFFER_SIZE];
     snprintf(notif, BUFFER_SIZE, "*** %s a été expulsé du serveur ***\n", target);
     for (int j = 0; j < MAX_CLIENTS; j++) {
@@ -553,14 +420,7 @@ void cmd_kick(int i, const char *buffer) {
     send_to(i, msg);
 }
 
-/**
- * @brief Gère la commande /away — activer ou désactiver un message d'absence.
- *        Syntaxe : /away [message] (sans message = revenir disponible)
- * @param i      Index du client.
- * @param buffer Ligne de commande reçue.
- */
 void cmd_away(int i, const char *buffer) {
-    /* "/away" seul = retour disponible */
     if (strlen(buffer) <= 6) {
         memset(clients[i].away_msg, 0, BUFFER_SIZE);
         send_to(i, "Vous êtes maintenant disponible.\n");
@@ -573,10 +433,6 @@ void cmd_away(int i, const char *buffer) {
     }
 }
 
-/**
- * @brief Gère la commande /stats — statistiques du serveur.
- * @param i Index du client demandeur.
- */
 void cmd_stats(int i) {
     char msg[BUFFER_SIZE];
     time_t now     = time(NULL);
@@ -584,7 +440,6 @@ void cmd_stats(int i) {
     long   heures  = uptime / 3600;
     long   minutes = (uptime % 3600) / 60;
     long   secondes = uptime % 60;
-
     snprintf(msg, BUFFER_SIZE,
              "=== Statistiques du serveur ===\n"
              "  Uptime          : %ldh %ldm %lds\n"
@@ -601,10 +456,6 @@ void cmd_stats(int i) {
     send_to(i, msg);
 }
 
-/**
- * @brief Gère la commande /help — affiche les commandes disponibles.
- * @param i Index du client demandeur.
- */
 void cmd_help(int i) {
     const char *msg =
         "========= Commandes disponibles =========\n"
@@ -628,15 +479,6 @@ void cmd_help(int i) {
     send_to(i, msg);
 }
 
-/* =========================================================
- *  GESTIONNAIRE TRANSFERT DE FICHIERS
- * ========================================================= */
-
-/**
- * @brief Gère la commande /sendfile — demande d'envoi de fichier.
- * @param i      Index du client expéditeur.
- * @param buffer Ligne de commande reçue.
- */
 void cmd_sendfile(int i, const char *buffer) {
     char target[MAX_PSEUDO_LEN] = {0}, filename[MAX_FILENAME] = {0};
     char msg[BUFFER_SIZE];
@@ -648,7 +490,6 @@ void cmd_sendfile(int i, const char *buffer) {
     }
     strncpy(target,   args, space - args);
     strncpy(filename, space + 1, MAX_FILENAME - 1);
-
     int idx = find_client_by_pseudo(target);
     if (idx == -1) {
         snprintf(msg, BUFFER_SIZE, "Utilisateur '%s' introuvable.\n", target);
@@ -670,10 +511,6 @@ void cmd_sendfile(int i, const char *buffer) {
     }
 }
 
-/**
- * @brief Gère la commande /accept — acceptation du transfert de fichier.
- * @param i Index du client récepteur.
- */
 void cmd_accept(int i) {
     char msg[BUFFER_SIZE];
     if (!transfers[i].pending) {
@@ -692,10 +529,6 @@ void cmd_accept(int i) {
     send_to(i, msg);
 }
 
-/**
- * @brief Gère la commande /reject — refus du transfert de fichier.
- * @param i Index du client récepteur.
- */
 void cmd_reject(int i) {
     char msg[BUFFER_SIZE];
     if (!transfers[i].pending) {
@@ -712,11 +545,6 @@ void cmd_reject(int i) {
     transfers[i].pending = 0;
 }
 
-/**
- * @brief Gère la commande /file — envoi du contenu du fichier.
- * @param i      Index du client expéditeur.
- * @param buffer Ligne de commande reçue (contenu après /file).
- */
 void cmd_file(int i, const char *buffer) {
     char msg[BUFFER_SIZE];
     int found = 0;
@@ -743,10 +571,6 @@ void cmd_file(int i, const char *buffer) {
         send_to(i, "Aucun transfert en cours.\n");
 }
 
-/* =========================================================
- *  MAIN
- * ========================================================= */
-
 int main(void) {
     int server_fd, client_fd;
     struct sockaddr_in server_addr, client_addr;
@@ -757,7 +581,6 @@ int main(void) {
 
     server_start = time(NULL);
 
-    /* --- Initialisation des tableaux --- */
     for (int i = 0; i < MAX_CLIENTS; i++) {
         clients[i].socket_fd   = -1;
         clients[i].nb_messages = 0;
@@ -772,14 +595,11 @@ int main(void) {
         memset(salons[i].password, 0, MAX_PSEUDO_LEN);
     }
 
-    /* --- Création de la socket serveur --- */
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd < 0) { perror("Erreur socket"); exit(EXIT_FAILURE); }
 
-    /* Réutilisation d'adresse pour éviter "Address already in use" */
     int opt = 1;
     setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-
     printf("✔ Socket créée\n");
 
     memset(&server_addr, 0, sizeof(server_addr));
@@ -798,7 +618,6 @@ int main(void) {
     printf("✔ Serveur en écoute (max %d clients)...\n", MAX_CLIENTS);
     log_message("Serveur démarré");
 
-    /* --- Boucle principale --- */
     while (1) {
         FD_ZERO(&readfds);
         FD_SET(server_fd, &readfds);
@@ -815,7 +634,6 @@ int main(void) {
         activity = select(max_fd + 1, &readfds, NULL, NULL, NULL);
         if (activity < 0) { perror("Erreur select"); break; }
 
-        /* --- Nouvelle connexion --- */
         if (FD_ISSET(server_fd, &readfds)) {
             client_fd = accept(server_fd,
                                (struct sockaddr*)&client_addr, &client_len);
@@ -841,7 +659,6 @@ int main(void) {
                         printf("✔ Nouveau client (socket %d) — %d/%d\n",
                                client_fd, nb_clients, MAX_CLIENTS);
                         log_message("Nouveau client connecté");
-                        /* Notification à tous */
                         char notif[BUFFER_SIZE];
                         snprintf(notif, BUFFER_SIZE,
                                  "*** Un nouveau client a rejoint le serveur (%d/%d) ***\n",
@@ -858,7 +675,6 @@ int main(void) {
             }
         }
 
-        /* --- Activité sur un client existant --- */
         for (int i = 0; i < MAX_CLIENTS; i++) {
             if (clients[i].socket_fd == -1 ||
                 !FD_ISSET(clients[i].socket_fd, &readfds))
@@ -868,7 +684,6 @@ int main(void) {
             int bytes = recv(clients[i].socket_fd, buffer, BUFFER_SIZE - 1, 0);
 
             if (bytes <= 0) {
-                /* Déconnexion inattendue */
                 printf("Client %s déconnecté\n", clients[i].pseudo);
                 char log_buf[BUFFER_SIZE];
                 snprintf(log_buf, BUFFER_SIZE, "%s déconnecté", clients[i].pseudo);
@@ -876,7 +691,6 @@ int main(void) {
                 char notif[BUFFER_SIZE];
                 snprintf(notif, BUFFER_SIZE, "*** %s a quitté le chat ***\n",
                          clients[i].pseudo);
-                /* Quitter le salon si dans un */
                 if (strlen(clients[i].salon) > 0) {
                     char nom_salon[MAX_SALON_LEN];
                     strncpy(nom_salon, clients[i].salon, MAX_SALON_LEN);
@@ -891,16 +705,13 @@ int main(void) {
                 continue;
             }
 
-            /* Supprimer le \n terminal */
             buffer[strcspn(buffer, "\n")] = '\0';
             printf("[%s] : %s\n", clients[i].pseudo, buffer);
 
-            /* Log le message reçu */
             char log_buf[2 * BUFFER_SIZE];
             snprintf(log_buf, sizeof(log_buf), "[%s] : %s", clients[i].pseudo, buffer);
             log_message(log_buf);
 
-            /* --- Routage des commandes --- */
             if      (strncmp(buffer, "/nick ",    6)  == 0) cmd_nick(i, buffer);
             else if (strcmp (buffer, "/who")          == 0) cmd_who(i);
             else if (strncmp(buffer, "/whois ",   7)  == 0) cmd_whois(i, buffer);
@@ -945,7 +756,6 @@ int main(void) {
                 }
             }
             else {
-                /* Message normal = broadcast */
                 broadcast(i, buffer);
             }
         }
